@@ -5,7 +5,9 @@
 //   2. js fsVersionChecker.js <deviceId> <localVersion> <targetScriptingName>
 //   3. [hover] outlet 0 → js inlet 0, outlet 2 → js inlet 1
 //
-// Only edits the target hint attribute.
+// Setup verification: bang → config/target status; check → fetch and log latest version.
+// First hover: version @2s, checking @4s, result @6s. Repeat hover: result @2s.
+// Hint cleared on enter and leave. Manifest cached per Live session.
 
 autowatch = 1;
 inlets = 2;
@@ -13,9 +15,10 @@ outlets = 0;
 
 var VERSION_URL = "https://raw.githubusercontent.com/groovmekanik/fsM4LVersionChecker/main/versions.json";
 var FETCH_TIMEOUT_MS = 4000;
-var STAGE_VERSION_MS = 1000;
-var STAGE_CHECKING_MS = 2000;
-var STAGE_RESULT_MS = 3000;
+var STAGE_VERSION_MS = 2000;
+var STAGE_CHECKING_MS = 4000;
+var STAGE_RESULT_MS = 6000;
+var STAGE_REHOVER_MS = 2000;
 
 var DEVICE_ID = "";
 var LOCAL_VERSION = "";
@@ -23,17 +26,12 @@ var TARGET_VARNAME = "";
 
 var devicePatcher = null;
 var cachedManifest = null;
+var lastResultHint = "";
 var hoverActive = false;
 var hoverToken = 0;
 var fetchInFlight = false;
 var scheduledTasks = [];
 
-/**
- * Reads device config from jsarguments typed into the js object box.
- * Parameters: none.
- * Returns: true when DEVICE_ID, LOCAL_VERSION, and TARGET_VARNAME are set.
- * Used by: loadbang().
- */
 function readConfigFromArguments() {
     if (jsarguments.length < 4) {
         post("fsVersionChecker: expected js fsVersionChecker.js <deviceId> <version> <targetVarname>\n");
@@ -46,21 +44,25 @@ function readConfigFromArguments() {
     return true;
 }
 
-/**
- * Updates the hint attribute on the named target object via getnamed().
- * Parameters:
- *   hintText (string): user-facing hint text.
- * Returns: nothing.
- * Used by: hover stage callbacks.
- */
-function setTargetHint(hintText) {
-    var target;
-
+function ensureInitialized() {
     if (!devicePatcher) {
-        return;
+        devicePatcher = this.patcher;
     }
 
-    target = devicePatcher.getnamed(TARGET_VARNAME);
+    return readConfigFromArguments();
+}
+
+function getTargetObject() {
+    if (!devicePatcher) {
+        return null;
+    }
+
+    return devicePatcher.getnamed(TARGET_VARNAME);
+}
+
+function setTargetHint(hintText) {
+    var target = getTargetObject();
+
     if (!target) {
         return;
     }
@@ -74,16 +76,9 @@ function setTargetHint(hintText) {
     try {
         target.setboxattr("hint", hintText);
     } catch (error2) {
-        post("fsVersionChecker: failed to set hint on " + TARGET_VARNAME + "\n");
     }
 }
 
-/**
- * Cancels all scheduled hover stage tasks.
- * Parameters: none.
- * Returns: nothing.
- * Used by: beginHoverSequence(), cancelHoverSequence().
- */
 function cancelScheduledTasks() {
     var index;
 
@@ -97,15 +92,6 @@ function cancelScheduledTasks() {
     scheduledTasks = [];
 }
 
-/**
- * Schedules a hover stage callback after a delay.
- * Parameters:
- *   delayMs (number): delay in milliseconds.
- *   callback (function): function invoked when the stage is reached.
- *   token (number): hover generation token used to ignore stale callbacks.
- * Returns: nothing.
- * Used by: beginHoverSequence().
- */
 function scheduleHoverStage(delayMs, callback, token) {
     var task = new Task(function() {
         if (token !== hoverToken || !hoverActive) {
@@ -119,43 +105,23 @@ function scheduleHoverStage(delayMs, callback, token) {
     scheduledTasks.push(task);
 }
 
-/**
- * Splits a dotted version string into numeric parts.
- * Parameters:
- *   versionString (string): version such as "1.0.10".
- * Returns: array of numbers.
- * Used by: compareVersions().
- */
-function parseVersionParts(versionString) {
-    var rawParts = String(versionString).split(".");
-    var parts = [];
-    var index;
-
-    for (index = 0; index < rawParts.length; index++) {
-        var parsed = parseInt(rawParts[index], 10);
-        parts.push(isNaN(parsed) ? 0 : parsed);
-    }
-
-    return parts;
-}
-
-/**
- * Compares two dotted numeric version strings.
- * Parameters:
- *   localVersion (string): installed device version.
- *   remoteVersion (string): manifest latest version.
- * Returns: -1 when local is older, 0 when equal, 1 when local is newer.
- * Used by: resolveCheckHint().
- */
 function compareVersions(localVersion, remoteVersion) {
-    var localParts = parseVersionParts(localVersion);
-    var remoteParts = parseVersionParts(remoteVersion);
+    var localParts = String(localVersion).split(".");
+    var remoteParts = String(remoteVersion).split(".");
     var maxLength = localParts.length > remoteParts.length ? localParts.length : remoteParts.length;
     var index;
 
     for (index = 0; index < maxLength; index++) {
-        var localPart = index < localParts.length ? localParts[index] : 0;
-        var remotePart = index < remoteParts.length ? remoteParts[index] : 0;
+        var localPart = index < localParts.length ? parseInt(localParts[index], 10) : 0;
+        var remotePart = index < remoteParts.length ? parseInt(remoteParts[index], 10) : 0;
+
+        if (isNaN(localPart)) {
+            localPart = 0;
+        }
+
+        if (isNaN(remotePart)) {
+            remotePart = 0;
+        }
 
         if (localPart < remotePart) {
             return -1;
@@ -169,13 +135,6 @@ function compareVersions(localVersion, remoteVersion) {
     return 0;
 }
 
-/**
- * Resolves the final user-facing hint from a parsed manifest.
- * Parameters:
- *   manifest (object): parsed versions.json content.
- * Returns: hint string for the 3 second stage.
- * Used by: showResultStage().
- */
 function resolveCheckHint(manifest) {
     var devices;
     var deviceEntry;
@@ -210,16 +169,24 @@ function resolveCheckHint(manifest) {
     return "Up to date";
 }
 
-/**
- * Starts an asynchronous manifest fetch when no session cache exists.
- * Parameters: none.
- * Returns: nothing.
- * Used by: showVersionStage().
- */
-function fetchManifestIfNeeded() {
+function storeResultHint(manifest) {
+    lastResultHint = resolveCheckHint(manifest);
+}
+
+function fetchManifestIfNeeded(onComplete) {
     var xhr;
 
-    if (cachedManifest || fetchInFlight) {
+    if (cachedManifest) {
+        if (onComplete) {
+            onComplete(cachedManifest);
+        }
+        return;
+    }
+
+    if (fetchInFlight) {
+        if (onComplete) {
+            post("fsVersionChecker: fetch already in progress\n");
+        }
         return;
     }
 
@@ -229,7 +196,9 @@ function fetchManifestIfNeeded() {
         xhr = new XMLHttpRequest();
     } catch (error) {
         fetchInFlight = false;
-        post("fsVersionChecker: XMLHttpRequest unavailable\n");
+        if (onComplete) {
+            onComplete(null);
+        }
         return;
     }
 
@@ -243,117 +212,142 @@ function fetchManifestIfNeeded() {
 
         fetchInFlight = false;
 
-        if (xhr.status === 200) {
-            try {
-                cachedManifest = JSON.parse(xhr.responseText);
-            } catch (parseError) {
-                post("fsVersionChecker: JSON parse error\n");
+        if (xhr.status !== 200) {
+            if (onComplete) {
+                onComplete(null);
             }
             return;
         }
 
-        post("fsVersionChecker: HTTP status " + xhr.status + "\n");
+        try {
+            cachedManifest = JSON.parse(xhr.responseText);
+            storeResultHint(cachedManifest);
+            if (onComplete) {
+                onComplete(cachedManifest);
+            }
+        } catch (parseError) {
+            if (onComplete) {
+                onComplete(null);
+            }
+        }
     };
 
     xhr.onerror = function() {
         fetchInFlight = false;
-        post("fsVersionChecker: request error\n");
+        if (onComplete) {
+            onComplete(null);
+        }
     };
 
     xhr.ontimeout = function() {
         fetchInFlight = false;
-        post("fsVersionChecker: request timeout\n");
+        if (onComplete) {
+            onComplete(null);
+        }
     };
 
     xhr.send();
 }
 
-/**
- * Shows the local version hint and starts the manifest fetch.
- * Parameters: none.
- * Returns: nothing.
- * Used by: hover stage scheduler.
- */
-function showVersionStage() {
-    setTargetHint("Version " + LOCAL_VERSION);
-    fetchManifestIfNeeded();
-}
-
-/**
- * Shows the in-progress hint while waiting for the manifest fetch.
- * Parameters: none.
- * Returns: nothing.
- * Used by: hover stage scheduler.
- */
-function showCheckingStage() {
-    setTargetHint("Checking for updates\u2026");
-}
-
-/**
- * Shows the final version-check result hint.
- * Parameters: none.
- * Returns: nothing.
- * Used by: hover stage scheduler.
- */
-function showResultStage() {
-    var hintText;
-
-    if (cachedManifest) {
-        hintText = resolveCheckHint(cachedManifest);
-    } else {
-        hintText = "Could not check for updates";
-    }
-
-    setTargetHint(hintText);
-}
-
-/**
- * Starts the timed hover hint sequence.
- * Parameters: none.
- * Returns: nothing.
- * Used by: msg_symbol() on hover enter.
- */
 function beginHoverSequence() {
     var token = hoverToken;
 
     cancelScheduledTasks();
-    scheduleHoverStage(STAGE_VERSION_MS, showVersionStage, token);
-    scheduleHoverStage(STAGE_CHECKING_MS, showCheckingStage, token);
-    scheduleHoverStage(STAGE_RESULT_MS, showResultStage, token);
+    setTargetHint("");
+
+    if (lastResultHint) {
+        scheduleHoverStage(STAGE_REHOVER_MS, function() {
+            setTargetHint(lastResultHint);
+        }, token);
+        return;
+    }
+
+    scheduleHoverStage(STAGE_VERSION_MS, function() {
+        setTargetHint("Version " + LOCAL_VERSION);
+        fetchManifestIfNeeded();
+    }, token);
+
+    scheduleHoverStage(STAGE_CHECKING_MS, function() {
+        setTargetHint("Checking for updates\u2026");
+    }, token);
+
+    scheduleHoverStage(STAGE_RESULT_MS, function() {
+        if (!lastResultHint) {
+            if (cachedManifest) {
+                storeResultHint(cachedManifest);
+            } else {
+                lastResultHint = "Could not check for updates";
+            }
+        }
+
+        setTargetHint(lastResultHint);
+    }, token);
 }
 
-/**
- * Stops the hover sequence and invalidates pending stage callbacks.
- * Parameters: none.
- * Returns: nothing.
- * Used by: msg_symbol() on hover leave.
- */
 function cancelHoverSequence() {
     hoverToken += 1;
     hoverActive = false;
     cancelScheduledTasks();
+    setTargetHint("");
 }
 
-/**
- * Initialises checker config from jsarguments on device load.
- * Parameters: none.
- * Returns: nothing.
- * Used by: Max loadbang message.
- */
 function loadbang() {
-    devicePatcher = this.patcher;
-    readConfigFromArguments();
+    ensureInitialized();
 }
 
-/**
- * Handles hover enter/leave symbols from the [hover] object.
- * Parameters:
- *   scriptingName (symbol): scripting name reported by [hover].
- * Returns: nothing.
- * Used by: [hover] outlets wired to inlets 0 (enter) and 1 (leave).
- */
-function msg_symbol(scriptingName) {
-    if (String(scriptingName) !== TARGET_VARNAME) {
+function reportManifestCheck(manifest) {
+    var deviceEntry;
+    var latestVersion;
+
+    if (!manifest || typeof manifest !== "object") {
+        post("fsVersionChecker: could not fetch version manifest\n");
+        return;
+    }
+
+    deviceEntry = manifest.devices && manifest.devices[DEVICE_ID];
+    if (!deviceEntry || !deviceEntry.latest) {
+        post("fsVersionChecker: no version info for device ID \"" + DEVICE_ID + "\"\n");
+        return;
+    }
+
+    latestVersion = String(deviceEntry.latest);
+    post("fsVersionChecker: " + DEVICE_ID + " latest = " + latestVersion + " (" + resolveCheckHint(manifest) + ")\n");
+}
+
+function bang() {
+    var target;
+
+    if (!ensureInitialized()) {
+        return;
+    }
+
+    target = getTargetObject();
+    post("fsVersionChecker: deviceId=" + DEVICE_ID + " localVersion=" + LOCAL_VERSION + " target=" + TARGET_VARNAME + " targetFound=" + (target ? "yes" : "no") + "\n");
+}
+
+function check() {
+    if (!ensureInitialized()) {
+        return;
+    }
+
+    if (cachedManifest) {
+        reportManifestCheck(cachedManifest);
+        return;
+    }
+
+    fetchManifestIfNeeded(function(manifest) {
+        reportManifestCheck(manifest);
+    });
+}
+
+function anything() {
+    var scriptingName = String(messagename);
+
+    if (!ensureInitialized()) {
+        return;
+    }
+
+    if (scriptingName !== TARGET_VARNAME) {
         return;
     }
 
