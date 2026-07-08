@@ -1,0 +1,28 @@
+{
+  "devices": {
+    "clipper": {
+      "latest": "2.7.1"
+    },
+    "ducker": {
+      "latest": "1.6.0"
+    },
+    "multibandSaturator": {
+      "latest": "1.3.0"
+    },
+    "transD": {
+      "latest": "2.0.0"
+    },
+    "squeeze": {
+      "latest": "2.0.0"
+    },
+    "hiFreqLimiter": {
+      "latest": "2.0.0"
+    },
+    "VSEQ": {
+      "latest": "1.0.0"
+    },
+    "bandSplit": {
+      "latest": "2.0.0"
+    }
+  }
+}
