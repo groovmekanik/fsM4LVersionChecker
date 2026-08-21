@@ -5,9 +5,11 @@
 //   2. js fsVersionChecker.js <deviceId> <localVersion> <targetScriptingName>
 //   3. [hover] outlet 0 → js inlet 0, outlet 2 → js inlet 1
 //
+// [js], [hover], and the named target must be in the same patcher (not a subpatcher or bpatcher).
+// deviceId must match versions.json exactly (case-sensitive).
 // Setup verification: bang → config/target status; check → fetch and log latest version.
 // First hover: version @2s, checking @4s, result @6s. Repeat hover: result @2s.
-// Hint cleared on enter and leave. Manifest cached per Live session.
+// Hint cleared on enter and leave. Manifest cached per Live session after a successful fetch.
 
 autowatch = 1;
 inlets = 2;
@@ -166,7 +168,7 @@ function resolveCheckHint(manifest) {
         return "Running development version";
     }
 
-    return "You're using the latest version :)";
+    return "You're using the latest version - " + DEVICE_ID + " " + LOCAL_VERSION;
 }
 
 function storeResultHint(manifest) {
@@ -276,7 +278,8 @@ function beginHoverSequence() {
             if (cachedManifest) {
                 storeResultHint(cachedManifest);
             } else {
-                lastResultHint = "Could not check for updates";
+                setTargetHint("Could not check for updates");
+                return;
             }
         }
 

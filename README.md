@@ -41,6 +41,10 @@ Hosted at:
 
 ## Device setup
 
+`[js]`, `[hover]`, and the named target must all live in the **same patcher**. `getnamed` will not find a target in a subpatcher or `bpatcher`, and `[hover]` only reports objects in its own patcher.
+
+`deviceId` must match a key in `versions.json` **exactly** (case-sensitive): `bandSplit` and `BandSplit` are different devices.
+
 1. Give the display object a **scripting name** (e.g. `bar-display`).
 2. Add the checker:
 
@@ -81,7 +85,7 @@ Max controls when hints actually appear on screen; these intervals are the sched
 
 After the first successful check, later hovers skip the version and checking stages. The cached result appears after **2 s**. The hint is cleared again when the pointer leaves.
 
-The manifest and result message are cached per Live session after the first successful fetch.
+The manifest and result message are cached per Live session after the first successful fetch. A failed check is not cached; the next hover runs the first-hover sequence again.
 
 ## Constraints
 
