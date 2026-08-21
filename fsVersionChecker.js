@@ -168,7 +168,7 @@ function resolveCheckHint(manifest) {
         return "Running development version";
     }
 
-    return "You're using the latest version - " + DEVICE_ID + " " + LOCAL_VERSION;
+    return "You're using the latest version\n" + DEVICE_ID + " " + LOCAL_VERSION;
 }
 
 function storeResultHint(manifest) {
