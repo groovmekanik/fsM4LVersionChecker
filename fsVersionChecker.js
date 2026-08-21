@@ -166,7 +166,7 @@ function resolveCheckHint(manifest) {
         return "Running development version";
     }
 
-    return "Up to date";
+    return "You're using the latest version :)";
 }
 
 function storeResultHint(manifest) {
@@ -263,7 +263,7 @@ function beginHoverSequence() {
     }
 
     scheduleHoverStage(STAGE_VERSION_MS, function() {
-        setTargetHint("Version " + LOCAL_VERSION);
+        setTargetHint(DEVICE_ID + " Version " + LOCAL_VERSION);
         fetchManifestIfNeeded();
     }, token);
 
