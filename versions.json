@@ -1,7 +1,7 @@
 {
   "devices": {
     "clipper": {
-      "latest": "2.7.1"
+      "latest": "2.7.2"
     },
     "ducker": {
       "latest": "1.6.0"
@@ -13,7 +13,7 @@
       "latest": "2.0.0"
     },
     "squeeze": {
-      "latest": "2.0.0"
+      "latest": "2.1.0"
     },
     "hiFreqLimiter": {
       "latest": "2.0.0"
@@ -22,7 +22,10 @@
       "latest": "1.0.0"
     },
     "bandSplit": {
-      "latest": "2.0.0"
+      "latest": "2.0.1"
+    }, 
+    "pentaComp": {
+      "latest": "1.9.1708"
     }
   }
 }
